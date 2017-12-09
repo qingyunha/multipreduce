@@ -68,11 +68,10 @@ class Reducer(object):
                 continue
             self.lock.release()
             pid, _ = os.wait()
-            p = self.workers[pid]
+            p = self.workers.pop(pid)
             s = p.read()
             p.close()
             self.tasks.append(self.decode(s))
-            self.workers.pop(pid)
 
     def feed(self, tasks):
         if self.stopped:
