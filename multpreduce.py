@@ -4,20 +4,23 @@ import time
 from threading import Thread, Lock
 
 
-class Worker(object):
+class Reducer(object):
 
-    def __init__(self, f, max_worker=10, tasks=None, encode=None, decode=None):
-        '''The Worker do computation `reduce(f, tasks)`, but in multiprocesses way.
+    def __init__(self, f, tasks=None, max_worker=10, encode=None, decode=None):
+        '''The Reducer do computation `reduce(f, tasks)`, but in multiprocesses way.
         Apply f of two item of tasks in a child process, And the encoded result is pass
-        back to the Worker throngh a pipe, then decode it and add it to tasks for next 
-        computation. PS The stdlib multiprocess is too hard to use.
+        back throngh a pipe, then decode the result and add it to tasks for next computation.
+        PS The stdlib multiprocess is too hard to use.
         '''
         self.f = f
         self.max_worker = max_worker
         self.encode = encode or pickle.dumps
-        self.decode = encode or pickle.loads
+        self.decode = decode or pickle.loads
         
-        self.tasks = tasks or []
+        if tasks:
+            self.tasks = list(tasks)
+        else:
+            tasks = []
         self.workers = {}
         self.lock = Lock()
 
@@ -100,26 +103,43 @@ class Worker(object):
             time.sleep(.1)
 
 
+def reduce(function, sequence, initial=None, **kwargs):
+    if not callable(function):
+        raise TypeError("%s object is not callable" % function)
+    try:
+        iter(sequence)
+    except:
+        raise
+    if len(sequence) == 0:
+        if not initial:
+            raise TypeError('reduce() of empty sequence with no initial value')
+        return initial
+    if initial:
+        sequence.append(initial)
+    r = Reducer(function, sequence, **kwargs)
+    r.start()
+    r.stop()
+    return r.get_result()
+
+
 if __name__ == '__main__':
 
     import random
-    T = list(range(15))
+    seq = list(range(15))
     def add(x, y):
         time.sleep(random.random())
         return x+y
-    t0 = time.time()
-    worker = Worker(add)
-    worker.start()
-    worker.feed(T)
-    worker.stop()
-    print(worker.get_result())
-    t1 = time.time()
-    print('------------', t1-t0)
 
     t0 = time.time()
-    r = 0
-    for i in T:
-        r = add(r, i)
+    r = reduce(add, seq)
     t1 = time.time()
-    print(r)
-    print('------------', t1-t0)
+    print(r, reduce, t1-t0)
+
+    try:
+        reduce = __builtins__.reduce
+    except:
+        from functools import reduce
+    t0 = time.time()
+    r = reduce(add, seq)
+    t1 = time.time()
+    print(r, reduce, t1-t0)
