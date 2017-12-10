@@ -20,7 +20,7 @@ class Reducer(object):
         if tasks:
             self.tasks = list(tasks)
         else:
-            tasks = []
+            self.tasks = []
         self.workers = {}
         self.lock = Lock()
 
@@ -54,12 +54,7 @@ class Reducer(object):
         while True:
             self.lock.acquire()
             if len(self.workers) == 0:
-                if len(self.tasks) <= 1:
-                    try:
-                        self.result = self.tasks[0]
-                    except IndexError:
-                        pass
-                    if self.stopped:
+                if self.stopped and len(self.tasks) <= 1:
                         self.lock.release()
                         self._collect_done = True
                         return
@@ -71,7 +66,8 @@ class Reducer(object):
             p = self.workers.pop(pid)
             s = p.read()
             p.close()
-            self.tasks.append(self.decode(s))
+            self.result = self.decode(s)
+            self.tasks.append(self.result)
 
     def feed(self, tasks):
         if self.stopped:
@@ -95,11 +91,18 @@ class Reducer(object):
     def stop(self):
         self.stopped = True
 
-    def get_result(self):
-        while True:
-            if self.result:
-                return self.result
-            time.sleep(.1)
+    def get_result(self, now=False):
+        if not now:
+            while True:
+                if self._collect_done:
+                    break
+                time.sleep(.1)
+        if self.result is not None:
+            return self.result
+        try:
+            return self.tasks[0]
+        except IndexError:
+            return None
 
 
 def reduce(function, sequence, initial=None, **kwargs):
