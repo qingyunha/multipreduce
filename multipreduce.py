@@ -69,15 +69,10 @@ class Reducer(object):
             self.result = self.decode(s)
             self.tasks.append(self.result)
 
-    def feed(self, tasks):
+    def feed(self, t):
         if self.stopped:
             return
-        try:
-            tasks[0]
-        except:
-            tasks = [tasks]
-        for t in tasks:
-            self.tasks.append(t)
+        self.tasks.append(t)
 
     def start(self):
         self.stopped = False
