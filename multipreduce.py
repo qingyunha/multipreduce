@@ -2,6 +2,7 @@ import os
 import pickle
 import time
 from threading import Thread, Lock
+import logging
 
 
 class Reducer(object):
@@ -44,10 +45,15 @@ class Reducer(object):
                     os.close(w)
                     self.workers[pid] = os.fdopen(r, 'rb')
                 elif pid == 0:
-                    os.close(r)
-                    z = self.f(x, y)
-                    w = os.fdopen(w, 'wb')
-                    w.write(self.encode(z))
+                    # handle all possible exception, should more specially
+                    try:
+                        os.close(r)
+                        z = self.f(x, y)
+                        w = os.fdopen(w, 'wb')
+                        w.write(self.encode(z))
+                        w.close()
+                    except Exception as e:
+                        logging.warning('worker error: %s', e)
                     exit(0)
 
     def collect(self):
@@ -64,10 +70,17 @@ class Reducer(object):
             self.lock.release()
             pid, _ = os.wait()
             p = self.workers.pop(pid)
-            s = p.read()
-            p.close()
-            self.result = self.decode(s)
-            self.tasks.append(self.result)
+            # handle all possible exception, should more specially
+            try:
+                s = p.read()
+                p.close()
+                if s == '':
+                    logging.warning('collect read None')
+                    continue
+                self.result = self.decode(s)
+                self.tasks.append(self.result)
+            except Exception as e:
+                logging.warning('collect error: %s', e)
 
     def feed(self, t):
         if self.stopped:
