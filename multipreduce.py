@@ -28,6 +28,7 @@ class Reducer(object):
         # in other word, we don't neet Thread and Lock if feed removed.
         self.lock = Lock()
 
+        self._stop = False
         self.result = None
         self._start()
 
@@ -80,7 +81,7 @@ class Reducer(object):
     def _loop(self):
         p = self.process()
         c = self.collect()
-        while True:
+        while not self._stop:
             with self.lock:
                 p.send(None)
                 c.send(None)
@@ -112,6 +113,9 @@ class Reducer(object):
         except IndexError:
             return None
 
+    def stop(self):
+        self._stop = True
+
 
 def reduce(function, sequence, initial=None, **kwargs):
     if not callable(function):
@@ -126,8 +130,11 @@ def reduce(function, sequence, initial=None, **kwargs):
         return initial
     if initial:
         sequence.append(initial)
-    r = Reducer(function, sequence, **kwargs)
-    return r.get_result()
+    try:
+        r = Reducer(function, sequence, **kwargs)
+        return r.get_result()
+    finally:
+        r.stop()
 
 
 if __name__ == '__main__':
