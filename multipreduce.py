@@ -69,6 +69,8 @@ class Reducer(object):
                 continue
             self.lock.release()
             pid, _ = os.wait()
+            if pid not in self.workers:
+                continue
             p = self.workers.pop(pid)
             # handle all possible exception, should more specially
             try:
