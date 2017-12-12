@@ -23,20 +23,19 @@ class Reducer(object):
         else:
             self.tasks = []
         self.workers = {}
+        # the lock now mainly for testing _loop round is done
+        # in turn is actually for supporting feed
+        # in other word, we don't neet Thread and Lock if feed removed.
         self.lock = Lock()
 
-        self._collect_done = False
-        self.stopped = True
         self.result = None
+        self._start()
 
     def process(self):
         while True:
-            if self._collect_done:
-                return
             if len(self.workers) >= self.max_worker or len(self.tasks) < 2:
-                time.sleep(.1)
-                continue
-            with self.lock:
+                yield
+            if len(self.tasks) >= 2:
                 x = self.tasks.pop()
                 y = self.tasks.pop()
                 r, w = os.pipe()
@@ -58,54 +57,53 @@ class Reducer(object):
 
     def collect(self):
         while True:
-            self.lock.acquire()
             if len(self.workers) == 0:
-                if self.stopped and len(self.tasks) <= 1:
-                        self.lock.release()
-                        self._collect_done = True
-                        return
-                self.lock.release()
-                time.sleep(.1)
-                continue
-            self.lock.release()
-            pid, _ = os.wait()
-            if pid not in self.workers:
-                continue
-            p = self.workers.pop(pid)
-            # handle all possible exception, should more specially
-            try:
-                s = p.read()
-                p.close()
-                if s == '':
-                    logging.warning('collect read None')
+                yield
+            if len(self.workers) > 0:
+                pid, _ = os.wait()
+                if pid not in self.workers:
                     continue
-                self.result = self.decode(s)
-                self.tasks.append(self.result)
-            except Exception as e:
-                logging.warning('collect error: %s', e)
+                p = self.workers.pop(pid)
+                # handle all possible exception, should more specially
+                try:
+                    s = p.read()
+                    p.close()
+                    if s == '':
+                        logging.warning('collect read None')
+                        continue
+                    self.result = self.decode(s)
+                    self.tasks.append(self.result)
+                    yield
+                except Exception as e:
+                    logging.warning('collect error: %s', e)
+
+    def _loop(self):
+        p = self.process()
+        c = self.collect()
+        while True:
+            with self.lock:
+                p.send(None)
+                c.send(None)
+            if self._is_done():
+                time.sleep(.1)
+
+    def _start(self):
+        t = Thread(target=self._loop)
+        t.daemon = True
+        t.start()
+
+    def _is_done(self):
+        return len(self.tasks) < 2 and len(self.workers) == 0
 
     def feed(self, t):
-        if self.stopped:
-            return
         self.tasks.append(t)
-
-    def start(self):
-        self.stopped = False
-        self._p = Thread(target=self.process)
-        self._p.daemon = True
-        self._p.start()
-        self._c = Thread(target=self.collect)
-        self._c.daemon = True
-        self._c.start()
-
-    def stop(self):
-        self.stopped = True
 
     def get_result(self, now=False):
         if not now:
             while True:
-                if self._collect_done:
-                    break
+                with self.lock:
+                    if self._is_done():
+                        break
                 time.sleep(.1)
         if self.result is not None:
             return self.result
@@ -129,8 +127,6 @@ def reduce(function, sequence, initial=None, **kwargs):
     if initial:
         sequence.append(initial)
     r = Reducer(function, sequence, **kwargs)
-    r.start()
-    r.stop()
     return r.get_result()
 
 
